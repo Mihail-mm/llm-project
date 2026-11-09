@@ -1,0 +1,40 @@
+{
+  "date": "2026-11-09",
+  "base_commit": "0256cea43faa137e7523265cf2be206cffdf2913",
+  "repository": "https://github.com/Mihail-mm/llm-project",
+  "branch": "knowledge-graph-from-documents",
+  "python": "3.12",
+  "tests": {
+    "passed": 182,
+    "failed": 0,
+    "original": 142,
+    "contract": 50,
+    "additional": 40,
+    "command": "python -m pytest -q tests erp/tests src/assistant/graphrag src/assistant/agent"
+  },
+  "lint": {
+    "command": "ruff check .",
+    "result": "All checks passed!"
+  },
+  "format": {
+    "scope": [
+      "src/assistant/graphrag",
+      "src/assistant/agent"
+    ],
+    "formatted": true
+  },
+  "live_llm_evaluation": {
+    "status": "not_run",
+    "reason": "No local Ollama or other configured model service",
+    "model_required": "qwen3:4b-instruct-2507-q4_K_M",
+    "embeddings_required": "bge-m3"
+  },
+  "integration": "Real FastAPI ERP app through TestClient; index roundtrip and LLMClient disk cache through MockTransport; model replies scripted, no live model",
+  "submission_ready": false,
+  "remaining": [
+    "Run index against the real model",
+    "Run all four evaluations and eval-extraction",
+    "Complete REPORT.pdf with measured metrics and real error analysis",
+    "Confirm team contribution metadata, then create submission commit/tag v1.0"
+  ]
+}
