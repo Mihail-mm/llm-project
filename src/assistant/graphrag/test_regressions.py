@@ -38,6 +38,17 @@ def test_empty_and_isolated_graph_communities():
     assert [community.nodes for community in detect_communities(graph)] == [["a"], ["b"]]
 
 
+def test_summaries_distinguish_isolated_procedures():
+    procedures = [Entity("Procedure", code) for code in ("SP-105", "SP-115")]
+    graph = build_graph([ExtractionResult("procedures.md#0", "procedures.md", entities=procedures)])
+    llm = FakeLLM(["Регламент SP-105 без связей.", "Регламент SP-115 без связей."])
+    for community in detect_communities(graph):
+        summarize_community(community, graph, llm)
+    first, second = [request["messages"][1]["content"] for request in llm.requests]
+    assert "SP-105" in first and "SP-115" not in first
+    assert "SP-115" in second and "SP-105" not in second
+
+
 def test_chain_reaches_terminal_part_and_its_supplier():
     llm = FakeLLM(["Актуальную P-2054C поставляет АвтоматикаСевер."])
     answer = local_search("Кто поставляет нагреватель оттайки для BZ-110?", chain_kb(), llm)

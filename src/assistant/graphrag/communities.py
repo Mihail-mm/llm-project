@@ -62,6 +62,13 @@ def summarize_community(community: Community, graph: nx.DiGraph, llm: LLMClient)
             for (line, model), count in sorted(model_failures.items(), key=lambda row: (-row[1], row[0]))
         ],
     }
+    isolated = [
+        {"тип": graph.nodes[node]["type"], "название": graph.nodes[node]["name"]}
+        for node in sorted(community.nodes)
+        if graph.degree(node) == 0
+    ]
+    if isolated:
+        statistics["сущности без связей"] = isolated
     facts = "\n".join(
         f"{fact(graph, source, target)} (вес {graph.edges[source, target]['weight']})" for source, target in edges
     )
@@ -74,6 +81,7 @@ def summarize_community(community: Community, graph: nx.DiGraph, llm: LLMClient)
                     "Числа уже посчитаны кодом: перенеси их точно, не считай заново. Сохрани частоты отказов "
                     "по линейкам и узлам, цепочки замен и поставщиков. Частоты относятся к этому сообществу, "
                     "а не ко всему корпусу. Связи FAILED отражают отказы, остальные веса - упоминания."
+                    + (" Назови каждую сущность без связей." if isolated else "")
                 ),
             },
             {"role": "user", "content": json.dumps(statistics, ensure_ascii=False) + "\nФакты:\n" + facts},
