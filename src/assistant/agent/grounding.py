@@ -7,7 +7,8 @@ from assistant.infra.grounding import find_codes, normalize_code
 
 _CODE_TOKEN = re.compile(r"(?<!\w)[A-Za-zА-Яа-яЁё]{1,2}[- ]?\d{2,4}[A-Za-zА-Яа-яЁё]?(?!\w)")
 _ORDER_ID = re.compile(r"\bSO-\d+\b", re.IGNORECASE)
-_NUMBER = r"(?<![\w-])(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d+)?(?![\w-])"
+_NUMBER = r"(?<![\w+−-])[-+−]?(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d+)?(?![\w-])"
+_LIST_MARKER = re.compile(r"(?m)^[ \t]*\d+[.)](?=[ \t]+\S)")
 _PRICE = re.compile(rf"({_NUMBER})\s*(?:руб\w*|₽)", re.IGNORECASE)
 _STOCK = re.compile(rf"({_NUMBER})\s*(?:шт\w*|единиц\w*|штук\w*|детал\w*|экземпляр\w*)", re.IGNORECASE)
 _PRICE_PREFIX = re.compile(rf"(?:цена|стоимость|стоит)\s*[:=—-]?\s*({_NUMBER})", re.IGNORECASE)
@@ -36,14 +37,16 @@ def _without_codes(text: str) -> str:
 
 def _number(raw) -> Decimal | None:
     try:
-        number = Decimal(re.sub(r"[\s\u00a0\u202f]", "", str(raw)).replace(",", "."))
+        number = Decimal(re.sub(r"[\s\u00a0\u202f]", "", str(raw)).replace(",", ".").replace("−", "-"))
         return number if number.is_finite() else None
     except InvalidOperation:
         return None
 
 
 def numbers(text: str) -> set[Decimal]:
-    return {value for raw in re.findall(_NUMBER, _without_codes(text)) if (value := _number(raw)) is not None}
+    # Номера пунктов не являются фактами ни в ответе, ни в его доказательствах.
+    text = _without_codes(_LIST_MARKER.sub("", text))
+    return {value for raw in re.findall(_NUMBER, text) if (value := _number(raw)) is not None}
 
 
 def requested_quantities(question: str) -> set[int]:
@@ -56,7 +59,7 @@ def requested_quantities(question: str) -> set[int]:
     found.update(
         _number(value)
         for value in re.findall(
-            rf"(?:количеств\w*|закаж\w*|заказ(?:ать)?|заказать|оформи\w*)\s*[:=]?\s*({_NUMBER})", text
+            rf"\b(?:количеств\w*|закаж\w*|заказ(?:ать)?|оформи\w*)\b\s*[:=]?\s*(?:на\s+)?({_NUMBER})", text
         )
     )
     for word, value in _WORDS.items():

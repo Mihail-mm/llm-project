@@ -32,6 +32,17 @@ def _observations(steps: list[ToolStep]) -> str:
     for step in steps:
         result = step.result or {}
         if step.error:
+            # Передаём категорию ошибки, не превращая её произвольный текст в факты.
+            if result.get("error_type") == "not_found":
+                detail = {
+                    "check_stock": "об остатке",
+                    "get_price": "о цене",
+                    "create_service_order": "для создания заказа",
+                }.get(step.tool, "по запросу")
+                statements.append(f"В ERP нет данных {detail}.")
+            elif result.get("error_type") == "rejected":
+                action = "создание заказа" if step.tool == "create_service_order" else "запрос"
+                statements.append(f"ERP отклонила {action}.")
             continue
         if result.get("answer"):
             statements.append(str(result["answer"]))
