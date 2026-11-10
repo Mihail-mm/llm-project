@@ -3,6 +3,7 @@
 import re
 from decimal import Decimal, InvalidOperation
 
+from assistant.agent.numeric_text import normalize_numeric_text
 from assistant.agent.warehouses import WAREHOUSE_PATTERN, find_warehouses, selected_warehouses, warehouse_label
 from assistant.infra.grounding import find_codes, normalize_code
 
@@ -56,21 +57,6 @@ _REQUEST_FIELDS = (
     (re.compile(r"\bмодел\w*\b", re.IGNORECASE), "Для какой модели оформить заказ?"),
     (re.compile(r"\bдетал\w*\b", re.IGNORECASE), "Укажите код детали."),
 )
-_WORDS = {
-    "одну": 1,
-    "один": 1,
-    "одна": 1,
-    "две": 2,
-    "два": 2,
-    "три": 3,
-    "четыре": 4,
-    "пять": 5,
-    "шесть": 6,
-    "семь": 7,
-    "восемь": 8,
-    "девять": 9,
-    "десять": 10,
-}
 _TIME_UNIT = re.compile(
     r"\s*(?:январ\w*|феврал\w*|март\w*|апрел\w*|ма[йяе]|июн\w*|июл\w*|август\w*|"
     r"сентябр\w*|октябр\w*|ноябр\w*|декабр\w*|день|дня|дней|дни|сут\w*|недел\w*|"
@@ -94,6 +80,7 @@ def _number(raw) -> Decimal | None:
 
 def numbers(text: str) -> set[Decimal]:
     # Номера пунктов не являются фактами ни в ответе, ни в его доказательствах.
+    text, _ = normalize_numeric_text(text)
     text = _without_codes(_LIST_MARKER.sub("", text))
     return {value for raw in re.findall(_NUMBER, text) if (value := _number(raw)) is not None}
 
@@ -153,13 +140,16 @@ def _quantity_context(text: str, position: int, *, request: bool = False) -> str
 
 def requested_quantities(question: str) -> set[int]:
     """Не принимаем цифры кода, цену или дату за количество для заказа."""
+    question, errors = normalize_numeric_text(question)
+    if errors:
+        return set()
     text = _without_codes(question).lower()
     text = re.sub(r"\b\d{1,4}[./-]\d{1,2}[./-]\d{1,4}\b", " ", text)
     text = re.sub(r"\b\d{1,2}/\d{1,2}\b", " ", text)
     text = re.sub(r"\b\d{1,2}:\d{2}\b", " ", text)
     for pattern in (_PRICE, _PRICE_PREFIX):
         text = pattern.sub(" ", text)
-    candidates = re.compile(rf"(?P<number>{_NUMBER})|\b(?P<word>{'|'.join(_WORDS)})\b")
+    candidates = re.compile(_NUMBER)
     direct = re.compile(r"\b(?:количеств\w*|закаж\w*|заказать|оформи\w*|заказ)\s*[:=]?\s*(?:на\s+)?(?:не\s+)?$")
     alternative = re.compile(rf"\s*(?:{_QUANTITY_UNIT}|реле)?\.?\s*,?\s*(?:или|либо|а)\s*(?:не\s+)?$")
     found = set()
@@ -178,12 +168,13 @@ def requested_quantities(question: str) -> set[int]:
             continue
         previous = match
         if not re.search(r"\bне\s*$", text[:match.start()]):
-            found.add(Decimal(_WORDS[match.group("word")]) if match.group("word") else _number(match.group()))
+            found.add(_number(match.group()))
     return {int(value) for value in found if value is not None and value > 0 and value == value.to_integral_value()}
 
 
 def requested_warehouses(question: str) -> set[str]:
     """Склад просьбы о заказе или отдельного поля, не склад справочного остатка."""
+    question, _ = normalize_numeric_text(question)
     text = re.sub(r"(?i:\bшт)\.", "шт ", question)
     selected, labels = set(), set()
     requested = ambiguous = False
@@ -224,9 +215,11 @@ def evidence_text(result: dict) -> str:
         if key in {"sources", "discontinued"}:
             continue
         if isinstance(value, (str, int, float)) and not isinstance(value, bool):
-            values.append(str(value))
+            values.append(normalize_numeric_text(str(value))[0])
         elif key == "facts" and isinstance(value, list):
-            values.extend(str(item) for item in value)
+            values.extend(normalize_numeric_text(str(item))[0] for item in value)
+    # Разбираем каждый источник отдельно: соседние поля «двадцать» и «две»
+    # не должны после объединения превратиться в доказательство числа 22.
     return "\n".join(values)
 
 
@@ -361,15 +354,17 @@ def _in_table(text: str, position: int) -> bool:
 
 def unsupported(answer: str, question: str, results: list[dict]) -> list[str]:
     """Возвращает неподтверждённые коды/числа; цены и остатки проверяет раздельно."""
+    order_quantities = {Decimal(value) for value in requested_quantities(question)}
+    answer, errors = normalize_numeric_text(answer)
+    question, _ = normalize_numeric_text(question)
     evidence = question + "\n" + "\n".join(evidence_text(result) for result in results)
-    errors = [code for code in find_codes(answer) if code not in find_codes(evidence)]
+    errors.extend(code for code in find_codes(answer) if code not in find_codes(evidence))
     order_ids = {value.upper() for value in _ORDER_ID.findall(evidence)}
     errors.extend(value for value in _ORDER_ID.findall(answer) if value.upper() not in order_ids)
     errors.extend(str(value) for value in sorted(numbers(answer) - numbers(evidence)))
     prices = {_number(value) for pattern in (_PRICE, _PRICE_PREFIX) for value in pattern.findall(question)}
     # Количество из просьбы о заказе не подтверждает наличие на складе.
     stock = {_number(value) for value in _STOCK_PREFIX.findall(question)}
-    order_quantities = {Decimal(value) for value in requested_quantities(question)}
     stock_records = _records(results, "qty")
     price_records = _records(results, "price_rub")
     order_records = [result for result in results if result.get("order_id") and not result.get("error")]
