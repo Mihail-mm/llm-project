@@ -2,13 +2,13 @@
 
 from collections.abc import Callable
 
+from assistant.agent.warehouses import WAREHOUSES
 from assistant.graphrag.search import global_search, local_search
 from assistant.infra.erp_client import ErpClient, ErpNotFound, ErpRejected
 from assistant.infra.grounding import code_type, normalize_code
 from assistant.infra.llm import LLMClient
 from assistant.infra.schemas import KnowledgeBase
 
-WAREHOUSES = ["Москва", "Санкт-Петербург", "Казань", "Новосибирск"]
 _QUESTION = {"type": "string", "minLength": 1, "description": "Полный вопрос с кодами и названием узла"}
 _PART = {"type": "string", "pattern": r"^P-\d{4}[A-Z]?$", "description": "Код из вопроса или поиска знаний"}
 _WAREHOUSE = {"type": "string", "enum": WAREHOUSES}

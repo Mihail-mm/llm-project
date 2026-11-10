@@ -3,7 +3,13 @@
 import json
 from collections.abc import Callable
 
-from assistant.agent.grounding import clarification_request, evidence_text, requested_quantities, unsupported
+from assistant.agent.grounding import (
+    clarification_request,
+    evidence_text,
+    requested_quantities,
+    requested_warehouses,
+    unsupported,
+)
 from assistant.agent.tools import TOOL_SCHEMAS, validate_arguments
 from assistant.graphrag.search import NOT_FOUND
 from assistant.infra.erp_client import ErpNotFound, ErpRejected, ErpUnavailable
@@ -85,6 +91,7 @@ def run_agent(
     messages = [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": question}]
     allowed_codes = set(find_codes(question))
     quantities = requested_quantities(question)
+    warehouses = requested_warehouses(question)
 
     def finish(text: str, *, refused: bool = False) -> AgentResult:
         if (
@@ -152,10 +159,14 @@ def run_agent(
                 if call.name == "create_service_order":
                     if args["model"] not in allowed_codes:
                         raise ValueError("Модель оборудования не подтверждена вопросом или поиском знаний")
-                    if args["qty"] not in quantities:
+                    if len(quantities) != 1 or args["qty"] not in quantities:
                         step.error = "Количество не названо пользователем"
                         step.result = {"error": step.error}
                         return finish("Сколько штук заказать? Укажите количество явно.")
+                    if len(warehouses) != 1 or args["warehouse"] not in warehouses:
+                        step.error = "Склад заказа не подтверждён пользователем"
+                        step.result = {"error": step.error}
+                        return finish("Уточните склад заказа. Укажите один склад явно.")
                     if not confirm:
                         step.error = "Требуется подтверждение пользователя"
                         step.result = {"error": step.error}
@@ -193,7 +204,12 @@ def run_agent(
             except (ValueError, TypeError) as exc:
                 step.error = str(exc)
                 step.result = {"error": step.error}
-            results.append(step.result)
+            observation = dict(step.result)
+            if not step.error and call.name in {"get_price", "check_stock", "create_service_order"}:
+                for field in ("part_id", "warehouse"):
+                    if field in step.args:
+                        observation.setdefault(field, step.args[field])
+            results.append(observation)
             allowed_codes.update(find_codes(evidence_text(step.result)))
             if not step.error:
                 sources.update(
