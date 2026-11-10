@@ -3,7 +3,7 @@
 import json
 from collections.abc import Callable
 
-from assistant.agent.grounding import evidence_text, requested_quantities, unsupported
+from assistant.agent.grounding import clarification_request, evidence_text, requested_quantities, unsupported
 from assistant.agent.tools import TOOL_SCHEMAS, validate_arguments
 from assistant.graphrag.search import NOT_FOUND
 from assistant.infra.erp_client import ErpNotFound, ErpRejected, ErpUnavailable
@@ -15,6 +15,7 @@ _SYSTEM = """Ты ассистент диспетчера сервисной с�
 Сначала выясни узел и актуальную деталь через search_knowledge, включая все REPLACED_BY.
 Обзорные вопросы и частоты отказов отправляй в summarize_topic. Цены и остатки узнай только
 через get_price и check_stock. Для актуального остатка нужен склад. Не придумывай аргументы.
+Если обязательный аргумент неизвестен, задай уточняющий вопрос до вызова инструмента.
 Если указанная деталь discontinued, найди её замену перед заказом. Нулевой остаток, отсутствие
 записи и недоступность ERP - разные исходы. Передай их пользователю точно.
 create_service_order используй только когда пользователь просит оформить заказ и назвал количество,
@@ -109,8 +110,11 @@ def run_agent(
                         result.get("refused") or result.get("error_type") == "not_found" for result in results
                     )
                     refused = "в базе знаний не найдено" in answer.lower() or (no_data and not has_data)
-                    if not steps or not answer:
+                    if not answer:
                         return finish(NOT_FOUND, refused=True)
+                    if not steps:
+                        clarification = clarification_request(answer)
+                        return finish(clarification or NOT_FOUND, refused=not clarification)
                     if refused and "в базе знаний не найдено" not in answer.lower():
                         answer = NOT_FOUND + " " + answer
                     return finish(answer, refused=refused)
