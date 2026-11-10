@@ -79,8 +79,13 @@ def _number(raw) -> Decimal | None:
 
 
 def numbers(text: str) -> set[Decimal]:
-    # Номера пунктов не являются фактами ни в ответе, ни в его доказательствах.
     text, _ = normalize_numeric_text(text)
+    return _plain_numbers(text)
+
+
+def _plain_numbers(text: str) -> set[Decimal]:
+    # Уже нормализованный текст не интерпретируем как Markdown повторно.
+    # Номера пунктов не являются фактами ни в ответе, ни в его доказательствах.
     text = _without_codes(_LIST_MARKER.sub("", text))
     return {value for raw in re.findall(_NUMBER, text) if (value := _number(raw)) is not None}
 
@@ -319,7 +324,7 @@ def _table_errors(
                 header = cells
                 continue
         if header is None or len(header) != len(cells):
-            if any(numbers(cell) for cell in cells) and (has_erp or _PRICE.search(line) or _STOCK.search(line)):
+            if any(_plain_numbers(cell) for cell in cells) and (has_erp or _PRICE.search(line) or _STOCK.search(line)):
                 errors.append("неразобранная таблица ERP")
             continue
         row = " ".join(cells)
@@ -327,7 +332,7 @@ def _table_errors(
         warehouses = find_warehouses(row)
         order_ids = {value.upper() for value in _ORDER_ID.findall(row)}
         for title, cell in zip(header, cells, strict=True):
-            values = numbers(cell)
+            values = _plain_numbers(cell)
             if not values:
                 continue
             if re.search(r"цена|стоимость|price", title, re.IGNORECASE):
@@ -361,7 +366,7 @@ def unsupported(answer: str, question: str, results: list[dict]) -> list[str]:
     errors.extend(code for code in find_codes(answer) if code not in find_codes(evidence))
     order_ids = {value.upper() for value in _ORDER_ID.findall(evidence)}
     errors.extend(value for value in _ORDER_ID.findall(answer) if value.upper() not in order_ids)
-    errors.extend(str(value) for value in sorted(numbers(answer) - numbers(evidence)))
+    errors.extend(str(value) for value in sorted(_plain_numbers(answer) - _plain_numbers(evidence)))
     prices = {_number(value) for pattern in (_PRICE, _PRICE_PREFIX) for value in pattern.findall(question)}
     # Количество из просьбы о заказе не подтверждает наличие на складе.
     stock = {_number(value) for value in _STOCK_PREFIX.findall(question)}
